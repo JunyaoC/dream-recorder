@@ -42,9 +42,12 @@
   "GPIO_FLASK_URL": "http://localhost:5000",
   "GPIO_SINGLE_TAP_ENDPOINT": "/api/gpio_single_tap",
   "GPIO_DOUBLE_TAP_ENDPOINT": "/api/gpio_double_tap",
+  "GPIO_HOLD_ENDPOINT": "/api/gpio_hold",
   "GPIO_SINGLE_TAP_MAX_DURATION": 0.5,
   "GPIO_DOUBLE_TAP_MAX_INTERVAL": 0.7,
   "GPIO_DEBOUNCE_TIME": 0.05,
   "GPIO_STARTUP_DELAY": 2,
-  "GPIO_SAMPLING_RATE": 0.01
+  "GPIO_SAMPLING_RATE": 0.01,
+  "GPIO_HOLD_MIN_DURATION": 3.0,
+  "TIMEZONE": "Asia/Shanghai"
 }

@@ -4,6 +4,10 @@ const StateManager = {
     STATES: {
         STARTUP: 'startup',
         CLOCK: 'clock',
+        ALARM_CLOCK: 'alarm_clock',  // Acts as hour setting mode
+        ALARM_SETTING_HOUR: 'alarm_setting_hour',  // Kept for compatibility, same as ALARM_CLOCK
+        ALARM_SETTING_MINUTE: 'alarm_setting_minute',
+        ALARM_TRIGGERED: 'alarm_triggered',
         RECORDING: 'recording',
         PROCESSING: 'processing',
         PLAYBACK: 'playback',
@@ -27,6 +31,13 @@ const StateManager = {
     previousState: null,
     stateChangeCallbacks: [],
     playbackTimer: null,
+    
+    // Alarm clock settings
+    alarmHour: 0,
+    alarmMinute: 0,
+    
+    // Alarm audio element
+    alarmHowl: null,
 
     // Initialize state manager
     async init() {
@@ -98,7 +109,7 @@ const StateManager = {
     },
 
     // Update state
-    updateState(newState, errorMessage = null) {
+    async updateState(newState, errorMessage = null) {
         // Don't allow state changes during startup sequence
         if (this.currentState === this.STATES.STARTUP && newState !== this.STATES.CLOCK) {
             return;
@@ -112,6 +123,15 @@ const StateManager = {
 
         // Handle transitions
         this.handleStateTransition(newState);
+
+        // Handle alarm audio BEFORE updating state
+        if (this.currentState === this.STATES.ALARM_TRIGGERED && newState !== this.STATES.ALARM_TRIGGERED && this.alarmHowl) {
+            console.log('Fading out alarm audio before state transition');
+            this.alarmHowl.fade(1, 0, 1500); // 1000 means 1000 milliseconds (1 second) duration for the fade
+            setTimeout(() => {
+                this.alarmHowl.stop();
+            }, 3000);
+        }
 
         this.previousState = this.currentState;
         this.currentState = newState;
@@ -135,6 +155,26 @@ const StateManager = {
             this.playbackTimer = setTimeout(() => {
                 this.updateState(this.STATES.CLOCK);
             }, this.config.playbackDuration * 1000); // Convert to milliseconds
+        }
+        
+        // Handle alarm triggered state
+        if (newState === this.STATES.ALARM_TRIGGERED) {
+            console.log('Entering ALARM_TRIGGERED state');
+            // Show clock (current time)
+            if (window.Clock && !window.Clock.clockInterval) {
+                window.Clock.init();
+            }
+            // Play alarm sound using Howler.js
+            if (!this.alarmHowl) {
+                this.alarmHowl = new Howl({
+                    src: ['/static/audio/alarm.mp3'],
+                    loop: true,
+                    volume: 1.0
+                });
+            }
+            this.alarmHowl.volume(0);
+            this.alarmHowl.play();
+            this.alarmHowl.fade(0, 1, 1000); // Fade in over 1s
         }
         
         // Notify all registered callbacks
@@ -206,7 +246,9 @@ const StateManager = {
         // Handle clock display
         if (clockDisplay) {
             console.log(`Handling clock display for state: ${newState}`);
-            if (newState === this.STATES.CLOCK) {
+            const isAlarmState = [this.STATES.ALARM_CLOCK, this.STATES.ALARM_SETTING_HOUR, this.STATES.ALARM_SETTING_MINUTE].includes(newState);
+            
+            if (newState === this.STATES.CLOCK || newState === this.STATES.ALARM_TRIGGERED || isAlarmState) {
                 // Fade in clock
                 clockDisplay.style.transition = `opacity ${this.config.clockFadeInDuration}ms ease-out`;
                 clockDisplay.style.display = 'block';
@@ -215,17 +257,45 @@ const StateManager = {
                 clockDisplay.style.opacity = '1';
                 clockDisplay.style.zIndex = '10'; // Below video when playing
 
-                // Initialize clock if needed
-                if (window.Clock && !window.Clock.clockInterval) {
-                    window.Clock.init();
+                // Apply alarm clock styling if in any alarm state
+                if (isAlarmState) {
+                    clockDisplay.classList.add('alarm-mode');
+                    
+                    // Remove all alarm state classes first
+                    clockDisplay.classList.remove('alarm-setting-hour', 'alarm-setting-minute');
+                    
+                    // Add specific state class
+                    if (newState === this.STATES.ALARM_SETTING_HOUR) {
+                        clockDisplay.classList.add('alarm-setting-hour');
+                    } else if (newState === this.STATES.ALARM_SETTING_MINUTE) {
+                        clockDisplay.classList.add('alarm-setting-minute');
+                    }
+                    
+                    // Stop regular clock updates and show alarm time
+                    if (window.Clock && window.Clock.clockInterval) {
+                        window.Clock.cleanup();
+                    }
+                    this.updateAlarmDisplay();
+                } else {
+                    clockDisplay.classList.remove('alarm-mode', 'alarm-setting-hour', 'alarm-setting-minute');
+                    // Resume regular clock updates
+                    if (window.Clock) {
+                        if (!window.Clock.clockInterval) {
+                            window.Clock.init();
+                        }
+                        // Force immediate update to show current time
+                        window.Clock.updateClock();
+                    }
                 }
-            } else if (this.currentState === this.STATES.CLOCK) {
+            } else if (this.currentState === this.STATES.CLOCK || this.currentState === this.STATES.ALARM_TRIGGERED || [this.STATES.ALARM_CLOCK, this.STATES.ALARM_SETTING_HOUR, this.STATES.ALARM_SETTING_MINUTE].includes(this.currentState)) {
                 // Fade out clock
                 clockDisplay.style.transition = `opacity ${this.config.clockFadeOutDuration}ms ease-out`;
                 clockDisplay.style.opacity = '0';
                 setTimeout(() => {
-                    if (this.currentState !== this.STATES.CLOCK) {
+                    const isCurrentAlarmState = [this.STATES.ALARM_CLOCK, this.STATES.ALARM_SETTING_HOUR, this.STATES.ALARM_SETTING_MINUTE].includes(this.currentState);
+                    if (this.currentState !== this.STATES.CLOCK && this.currentState !== this.STATES.ALARM_TRIGGERED && !isCurrentAlarmState) {
                         clockDisplay.style.display = 'none';
+                        clockDisplay.classList.remove('alarm-mode', 'alarm-setting-hour', 'alarm-setting-minute');
                     }
                 }, this.config.clockFadeOutDuration);
             }
@@ -294,12 +364,19 @@ const StateManager = {
     },
 
     // Handle device events based on mode
-    handleDeviceEvent(eventType) {
+    async handleDeviceEvent(eventType) {
         console.log(`Handling device event: ${eventType}`);
         
         switch (eventType) {
+            case 'alarm_triggered':
+                this.updateState(this.STATES.ALARM_TRIGGERED);
+                break;
             case 'single_tap':
-                if (this.currentState === this.STATES.RECORDING) {
+                if (this.currentState === this.STATES.ALARM_TRIGGERED) {
+                    // Dismiss alarm
+                    this.updateState(this.STATES.CLOCK);
+                    return; // Stop processing further conditions
+                } else if (this.currentState === this.STATES.RECORDING) {
                     // Any tap during recording stops it
                     this.stopRecording();
                 } else if (this.currentState === this.STATES.PLAYBACK) {
@@ -308,6 +385,12 @@ const StateManager = {
                 } else if (this.currentState === this.STATES.CLOCK) {
                     // Single tap in clock state plays most recent video
                     this.playLatestVideo();
+                } else if (this.currentState === this.STATES.ALARM_CLOCK || this.currentState === this.STATES.ALARM_SETTING_HOUR) {
+                    // Single tap in alarm clock (hour setting) increments hour
+                    this.incrementAlarmHour();
+                } else if (this.currentState === this.STATES.ALARM_SETTING_MINUTE) {
+                    // Single tap in minute setting increments minute
+                    this.incrementAlarmMinute();
                 } else if (this.currentState === this.STATES.ERROR) {
                     // Hide errorDiv and return to clock
                     if (window.errorDiv) {
@@ -321,6 +404,12 @@ const StateManager = {
                 if (this.currentState === this.STATES.CLOCK) {
                     // Double tap in clock state starts recording
                     this.startRecording();
+                } else if (this.currentState === this.STATES.ALARM_CLOCK || this.currentState === this.STATES.ALARM_SETTING_HOUR) {
+                    // Double tap in alarm clock (hour setting) decrements hour
+                    this.decrementAlarmHour();
+                } else if (this.currentState === this.STATES.ALARM_SETTING_MINUTE) {
+                    // Double tap in minute setting decrements minute
+                    this.decrementAlarmMinute();
                 } else if (this.currentState === this.STATES.PLAYBACK) {
                     // Double tap during playback returns to clock
                     this.updateState(this.STATES.CLOCK);
@@ -328,6 +417,27 @@ const StateManager = {
                     // Double tap during recording cancels and returns to clock
                     if (window.stopRecording) {
                         window.stopRecording();
+                    }
+                    this.updateState(this.STATES.CLOCK);
+                }
+                break;
+                
+            case 'hold':
+                if (this.currentState === this.STATES.CLOCK) {
+                    // Hold in clock state enters alarm clock mode and loads saved settings
+                    await this.loadAlarmSettings();
+                    this.updateState(this.STATES.ALARM_CLOCK);
+                } else if (this.currentState === this.STATES.ALARM_CLOCK) {
+                    // Hold in alarm clock (hour setting) goes to minute setting
+                    this.updateState(this.STATES.ALARM_SETTING_MINUTE);
+                } else if (this.currentState === this.STATES.ALARM_SETTING_HOUR) {
+                    // Hold in hour setting goes to minute setting
+                    this.updateState(this.STATES.ALARM_SETTING_MINUTE);
+                } else if (this.currentState === this.STATES.ALARM_SETTING_MINUTE) {
+                    // Hold in minute setting returns to normal clock
+                    // Ensure clock shows current time when returning
+                    if (window.Clock) {
+                        window.Clock.updateClock();
                     }
                     this.updateState(this.STATES.CLOCK);
                 }
@@ -341,6 +451,104 @@ const StateManager = {
     // Register a callback for state changes
     registerStateChangeCallback(callback) {
         this.stateChangeCallbacks.push(callback);
+    },
+
+    // Increment alarm hour
+    incrementAlarmHour() {
+        this.alarmHour = (this.alarmHour + 1) % 24;
+        this.updateAlarmDisplay();
+        this.saveAlarmSettings(); // Auto-save when changed
+    },
+
+    // Decrement alarm hour
+    decrementAlarmHour() {
+        this.alarmHour = (this.alarmHour - 1 + 24) % 24;
+        this.updateAlarmDisplay();
+        this.saveAlarmSettings(); // Auto-save when changed
+    },
+
+    // Increment alarm minute
+    incrementAlarmMinute() {
+        this.alarmMinute = (this.alarmMinute + 1) % 60;
+        this.updateAlarmDisplay();
+        this.saveAlarmSettings(); // Auto-save when changed
+    },
+
+    // Decrement alarm minute
+    decrementAlarmMinute() {
+        this.alarmMinute = (this.alarmMinute - 1 + 60) % 60;
+        this.updateAlarmDisplay();
+        this.saveAlarmSettings(); // Auto-save when changed
+    },
+
+    // Update alarm display
+    updateAlarmDisplay() {
+        const hourTens = document.querySelector('.hour-tens');
+        const hourOnes = document.querySelector('.hour-ones');
+        const minuteTens = document.querySelector('.minute-tens');
+        const minuteOnes = document.querySelector('.minute-ones');
+        const colon = document.querySelector('.colon');
+
+        if (hourTens && hourOnes && minuteTens && minuteOnes) {
+            const hourStr = this.alarmHour.toString().padStart(2, '0');
+            const minuteStr = this.alarmMinute.toString().padStart(2, '0');
+
+            hourTens.textContent = hourStr[0];
+            hourOnes.textContent = hourStr[1];
+            minuteTens.textContent = minuteStr[0];
+            minuteOnes.textContent = minuteStr[1];
+        }
+        
+        // Ensure colon is visible in alarm modes
+        if (colon) {
+            colon.classList.remove('hidden');
+        }
+    },
+
+    // Load alarm settings from server
+    async loadAlarmSettings() {
+        try {
+            const response = await fetch('/api/alarm');
+            if (response.ok) {
+                const data = await response.json();
+                this.alarmHour = data.hour || 0;
+                this.alarmMinute = data.minute || 0;
+                console.log(`Loaded alarm settings: ${this.alarmHour.toString().padStart(2, '0')}:${this.alarmMinute.toString().padStart(2, '0')}`);
+            } else {
+                console.warn('Failed to load alarm settings, using defaults');
+                this.alarmHour = 0;
+                this.alarmMinute = 0;
+            }
+        } catch (error) {
+            console.error('Error loading alarm settings:', error);
+            this.alarmHour = 0;
+            this.alarmMinute = 0;
+        }
+    },
+
+    // Save alarm settings to server
+    async saveAlarmSettings() {
+        try {
+            const response = await fetch('/api/alarm', {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    hour: this.alarmHour,
+                    minute: this.alarmMinute
+                })
+            });
+            
+            if (response.ok) {
+                const data = await response.json();
+                console.log(`Saved alarm settings: ${this.alarmHour.toString().padStart(2, '0')}:${this.alarmMinute.toString().padStart(2, '0')}`);
+            } else {
+                console.error('Failed to save alarm settings');
+            }
+        } catch (error) {
+            console.error('Error saving alarm settings:', error);
+        }
     }
 };
 

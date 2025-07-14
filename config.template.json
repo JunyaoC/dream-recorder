@@ -337,6 +337,13 @@
         "type": "string"
     },
     {
+        "name": "GPIO_HOLD_ENDPOINT",
+        "category": "GPIO",
+        "description": "API endpoint for hold button events.",
+        "default": "/api/gpio_hold",
+        "type": "string"
+    },
+    {
         "name": "GPIO_SINGLE_TAP_MAX_DURATION",
         "category": "GPIO",
         "description": "Max duration (seconds) for a single tap to be recognized.",
@@ -370,5 +377,19 @@
         "description": "Sampling rate (seconds) for reading GPIO pin state.",
         "default": 0.01,
         "type": "float"
+    },
+    {
+        "name": "GPIO_HOLD_MIN_DURATION",
+        "category": "GPIO",
+        "description": "Minimum duration (seconds) for a hold press to be recognized.",
+        "default": 3.0,
+        "type": "float"
+    },
+    {
+        "name": "TIMEZONE",
+        "category": "General",
+        "description": "Timezone for the application.",
+        "default": "Asia/Shanghai",
+        "type": "string"
     }
 ]

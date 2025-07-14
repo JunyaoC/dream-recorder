@@ -2,7 +2,7 @@ services:
   app:
     build: .
     ports:
-      - "${PORT}:${PORT}"
+      - "5001:5000"
     volumes:
       - .:/app
       - db-data:/app/db
@@ -13,7 +13,15 @@ services:
     environment:
       - HOST=0.0.0.0
       - FLASK_ENV=development
+      - PORT=5000
     command: python dream_recorder.py --reload 
+
+  cron:
+    build:
+      context: ./cronjob
+    depends_on:
+      - app
+    restart: unless-stopped
 
 volumes:
   db-data:

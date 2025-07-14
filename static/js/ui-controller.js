@@ -3,10 +3,12 @@ document.addEventListener('DOMContentLoaded', () => {
     // Input simulator buttons
     const singleTapBtn = document.getElementById('singleTapBtn');
     const doubleTapBtn = document.getElementById('doubleTapBtn');
+    const holdBtn = document.getElementById('holdBtn');
     
     // Input simulator handlers
     singleTapBtn.addEventListener('click', () => simulateInput('single_tap'));
     doubleTapBtn.addEventListener('click', () => simulateInput('double_tap'));
+    holdBtn.addEventListener('click', () => simulateInput('hold'));
     
     // Listen for state changes
     document.addEventListener('stateChange', (event) => {
@@ -32,7 +34,7 @@ function updateUIForState(state) {
     const container = document.querySelector('.container');
     
     // Remove all state classes
-    container.classList.remove('clock', 'recording', 'processing', 'playback', 'error');
+    container.classList.remove('clock', 'alarm_clock', 'alarm_setting_hour', 'alarm_setting_minute', 'alarm_triggered', 'recording', 'processing', 'playback', 'error');
     
     // Add current state class
     container.classList.add(state);

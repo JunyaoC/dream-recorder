@@ -14,6 +14,13 @@ services:
       - HOST=0.0.0.0
     command: python dream_recorder.py
 
+  cron:
+    build:
+      context: ./cronjob
+    depends_on:
+      - app
+    restart: unless-stopped
+
 volumes:
   db-data:
   media-data:

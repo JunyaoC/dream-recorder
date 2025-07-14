@@ -81,24 +81,36 @@ const Clock = {
         // Helper to update digit only if changed
         function updateDigit(element, newValue) {
             if (!element) return;
-            const lastValue = element.getAttribute('data-value');
-            if (lastValue !== newValue) {
-                element.textContent = newValue;
-                element.setAttribute('data-value', newValue);
-            }
+            // Always update when returning from alarm mode to ensure current time is shown
+            element.textContent = newValue;
+            element.setAttribute('data-value', newValue);
         }
 
-        // Update digits only if changed
+        // Update digits to current time
         updateDigit(this.elements.hourTens, hours[0]);
         updateDigit(this.elements.hourOnes, hours[1]);
         updateDigit(this.elements.minuteTens, minutes[0]);
         updateDigit(this.elements.minuteOnes, minutes[1]);
         
-        // Toggle colon visibility
+            // Toggle colon visibility (only in normal clock mode)
+    const clockDisplay = document.getElementById('clockDisplay');
+    const isAlarmMode = clockDisplay && (
+        clockDisplay.classList.contains('alarm-mode') ||
+        clockDisplay.classList.contains('alarm-setting-hour') ||
+        clockDisplay.classList.contains('alarm-setting-minute')
+    );
+    
+    if (!isAlarmMode) {
         this.colonVisible = !this.colonVisible;
         if (this.elements.colon) {
             this.elements.colon.classList.toggle('hidden', !this.colonVisible);
         }
+    } else {
+        // Keep colon visible in alarm modes
+        if (this.elements.colon) {
+            this.elements.colon.classList.remove('hidden');
+        }
+    }
     },
 
     // Update configuration at runtime

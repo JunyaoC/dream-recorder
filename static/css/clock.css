@@ -29,3 +29,46 @@
 .colon.hidden {
     opacity: 0;
 }
+
+/* Alarm clock mode styling */
+.clock-display.alarm-mode .clock-digits {
+    color: #3498db; /* Blue color for alarm mode */
+    text-shadow: 0 0 20px rgba(52, 152, 219, 0.8); /* Blue glow effect */
+}
+
+/* Alarm clock mode (hour setting) - flash hour digits */
+.clock-display.alarm-mode:not(.alarm-setting-hour):not(.alarm-setting-minute) .hour-tens,
+.clock-display.alarm-mode:not(.alarm-setting-hour):not(.alarm-setting-minute) .hour-ones,
+.clock-display.alarm-setting-hour .hour-tens,
+.clock-display.alarm-setting-hour .hour-ones {
+    animation: flash 0.8s ease-in-out infinite;
+}
+
+/* Minute setting mode - flash minute digits */
+.clock-display.alarm-setting-minute .minute-tens,
+.clock-display.alarm-setting-minute .minute-ones {
+    animation: flash 0.8s ease-in-out infinite;
+}
+
+/* Flash animation */
+@keyframes flash {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.3; }
+}
+
+/* Alarm triggered mode - flash red */
+.container.alarm_triggered .clock-display .clock-digits {
+    color: #e74c3c; /* Red color for alarm */
+    animation: alarm-flash 1s ease-in-out infinite;
+}
+
+@keyframes alarm-flash {
+    0%, 100% { 
+        opacity: 1; 
+        text-shadow: 0 0 30px rgba(231, 76, 60, 0.8);
+    }
+    50% { 
+        opacity: 0.5;
+        text-shadow: 0 0 10px rgba(231, 76, 60, 0.4);
+    }
+}

@@ -8,7 +8,18 @@ import os
 import logging
 import gevent
 import io
+import json
 import argparse
+
+# Set timezone from config before any time functions are used
+try:
+    from functions.config_loader import get_config
+    tz = get_config().get("TIMEZONE", "UTC")
+    os.environ['TZ'] = tz
+    import time
+    time.tzset()
+except Exception as e:
+    print(f"Warning: Could not set timezone from config: {e}")
 
 from flask import Flask, render_template, jsonify, request, send_file
 from flask_socketio import SocketIO, emit
@@ -55,7 +66,7 @@ app = Flask(__name__)
 app.config.update(
     DEBUG=os.environ.get("FLASK_ENV", "production") == "development",
     HOST=get_config()["HOST"],
-    PORT=int(get_config()["PORT"])
+    PORT=int(os.environ.get("PORT", get_config()["PORT"]))
 )
 
 # Initialize SocketIO
@@ -262,6 +273,18 @@ def gpio_double_tap():
             logger.error(f"Error in API gpio_double_tap: {str(e)}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+@app.route('/api/gpio_hold', methods=['POST'])
+def gpio_hold():
+    """API endpoint for hold from GPIO controller."""
+    try:
+        # Notify all clients of a hold event
+        socketio.emit('device_event', {'eventType': 'hold'})
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        if logger:
+            logger.error(f"Error in API gpio_hold: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 @app.route('/api/dreams/<int:dream_id>', methods=['DELETE'])
 def delete_dream(dream_id):
     """Delete a dream and its associated files."""
@@ -312,6 +335,112 @@ def notify_config_reload():
     load_config()
     socketio.emit('reload_config')
     return jsonify({'status': 'reload event emitted'})
+
+@app.route('/api/alarm', methods=['GET'])
+def get_alarm():
+    """Get the current alarm settings."""
+    try:
+        alarm_file = 'alarm.json'
+        if os.path.exists(alarm_file):
+            with open(alarm_file, 'r') as f:
+                alarm_data = json.load(f)
+        else:
+            # Default values if file doesn't exist
+            alarm_data = {'hour': 0, 'minute': 0}
+        return jsonify(alarm_data)
+    except Exception as e:
+        if logger:
+            logger.error(f"Error reading alarm settings: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/alarm', methods=['POST'])
+def save_alarm():
+    """Save alarm settings to file."""
+    try:
+        data = request.get_json()
+        if not data or 'hour' not in data or 'minute' not in data:
+            return jsonify({'error': 'Missing hour or minute in request'}), 400
+        
+        # Validate values
+        hour = int(data['hour'])
+        minute = int(data['minute'])
+        if not (0 <= hour <= 23) or not (0 <= minute <= 59):
+            return jsonify({'error': 'Invalid hour or minute values'}), 400
+        
+        alarm_data = {'hour': hour, 'minute': minute}
+        
+        # Save to file
+        alarm_file = 'alarm.json'
+        with open(alarm_file, 'w') as f:
+            json.dump(alarm_data, f, indent=2)
+        
+        if logger:
+            logger.info(f"Alarm settings saved: {hour:02d}:{minute:02d}")
+        
+        return jsonify({'status': 'success', 'data': alarm_data})
+    except Exception as e:
+        if logger:
+            logger.error(f"Error saving alarm settings: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/check_alarm', methods=['POST'])
+def check_alarm():
+    """Check the current time against alarm.json and trigger alarm if matched."""
+    try:
+        import time
+        alarm_file = 'alarm.json'
+        if os.path.exists(alarm_file):
+            with open(alarm_file, 'r') as f:
+                alarm_data = json.load(f)
+        else:
+            return jsonify({'status': 'no_alarm_set'}), 200
+
+        # Get current local time
+        now = time.localtime()
+        current_hour = now.tm_hour
+        current_minute = now.tm_min
+        if logger:
+            logger.info(f"[check_alarm] now={now}, current_hour={current_hour}, current_minute={current_minute}")
+
+        # Compare with alarm
+        alarm_hour = int(alarm_data.get('hour', -1))
+        alarm_minute = int(alarm_data.get('minute', -1))
+
+        if current_hour == alarm_hour and current_minute == alarm_minute:
+            socketio.emit('device_event', {'eventType': 'alarm_triggered'})
+            if logger:
+                logger.info(f"Alarm triggered at {current_hour:02d}:{current_minute:02d} via /check_alarm endpoint.")
+            return jsonify({'status': 'alarm triggered'})
+        else:
+            return jsonify({'status': 'no match', 'current_time': f'{current_hour:02d}:{current_minute:02d}', 'alarm_time': f'{alarm_hour:02d}:{alarm_minute:02d}'})
+    except Exception as e:
+        if logger:
+            logger.error(f"Error checking alarm: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/audio_devices')
+def list_audio_devices():
+    """List available audio devices for debugging."""
+    try:
+        import sounddevice as sd
+        devices = sd.query_devices()
+        device_list = []
+        
+        for i, device in enumerate(devices):
+            device_info = {
+                'index': i,
+                'name': device['name'],
+                'channels': device['max_output_channels'],
+                'is_default': i == sd.default.device[1]
+            }
+            device_list.append(device_info)
+        
+        return jsonify({
+            'devices': device_list,
+            'default_output': sd.default.device[1]
+        })
+    except Exception as e:
+        return jsonify({'error': str(e)}), 500
 
 # -- Media Routes --
 @app.route('/media/<path:filename>')

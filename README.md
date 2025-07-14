@@ -1,3 +1,14 @@
+> Forked from [markhinch/dream-recorder](https://github.com/markhinch/dream-recorder)
+
+To run locally for dev, run:
+
+```bash
+docker compose -f docker-compose.dev.yml build
+docker compose -f docker-compose.dev.yml up -d
+```
+
+
+
 # Dream Recorder
 <a href="./docs/images/logo.jpg"><img src="./docs/images/logo.jpg" width="100%" /></a>
 
