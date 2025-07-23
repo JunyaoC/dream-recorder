@@ -443,6 +443,33 @@ const StateManager = {
                 }
                 break;
                 
+            case 'triple_tap':
+                if (this.currentState === this.STATES.CLOCK) {
+                    // Triple tap in clock state toggles alarm on/off
+                    try {
+                        const response = await fetch('/api/alarm/toggle', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            }
+                        });
+                        
+                        if (response.ok) {
+                            const data = await response.json();
+                            console.log(`Alarm toggled: ${data.enabled ? 'enabled' : 'disabled'}`);
+                            // Update alarm indicator
+                            if (window.Clock && typeof window.Clock.updateAlarmIndicator === 'function') {
+                                window.Clock.updateAlarmIndicator();
+                            }
+                        } else {
+                            console.error('Failed to toggle alarm');
+                        }
+                    } catch (error) {
+                        console.error('Error toggling alarm:', error);
+                    }
+                }
+                break;
+                
             default:
                 console.log(`Unhandled event type: ${eventType}`);
         }

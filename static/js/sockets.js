@@ -195,6 +195,14 @@ window.socket.on('reload_config', () => {
     window.location.reload();
 });
 
+window.socket.on('alarm_toggled', (data) => {
+    console.log('Received alarm_toggled event:', data);
+    // Update alarm indicator
+    if (window.Clock && typeof window.Clock.updateAlarmIndicator === 'function') {
+        window.Clock.updateAlarmIndicator();
+    }
+});
+
 // UI update functions
 function updateUI(state) {
     // Don't update status through this function since StateManager handles it

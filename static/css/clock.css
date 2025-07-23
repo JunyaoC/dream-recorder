@@ -72,3 +72,39 @@
         text-shadow: 0 0 10px rgba(231, 76, 60, 0.4);
     }
 }
+
+/* Alarm indicator styling */
+.alarm-indicator {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    margin-top: 6rem; /* Position below the clock */
+    display: none; /* Hidden by default */
+    align-items: center;
+    justify-content: center;
+    gap: 0.5rem;
+    z-index: 10;
+    opacity: 1;
+}
+
+.alarm-indicator .alarm-icon {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 24px;
+    height: 24px;
+}
+
+.alarm-indicator .alarm-time {
+    font-size: 2rem;
+    font-weight: 500;
+    color: #fff;
+    font-family: var(--clock-font-family, 'Arial', sans-serif);
+    text-shadow: 0 0 10px rgba(255, 255, 255, 0.5);
+}
+
+/* Show alarm indicator with fade effect when alarm is set */
+.clock-display ~ .alarm-indicator {
+    transition: opacity 0.3s ease;
+}

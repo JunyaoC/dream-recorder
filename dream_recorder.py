@@ -273,6 +273,18 @@ def gpio_double_tap():
             logger.error(f"Error in API gpio_double_tap: {str(e)}")
         return jsonify({'status': 'error', 'message': str(e)}), 500
 
+@app.route('/api/gpio_triple_tap', methods=['POST'])
+def gpio_triple_tap():
+    """API endpoint for triple tap from GPIO controller."""
+    try:
+        # Notify all clients of a triple tap event
+        socketio.emit('device_event', {'eventType': 'triple_tap'})
+        return jsonify({'status': 'success'})
+    except Exception as e:
+        if logger:
+            logger.error(f"Error in API gpio_triple_tap: {str(e)}")
+        return jsonify({'status': 'error', 'message': str(e)}), 500
+
 @app.route('/api/gpio_hold', methods=['POST'])
 def gpio_hold():
     """API endpoint for hold from GPIO controller."""
@@ -344,9 +356,12 @@ def get_alarm():
         if os.path.exists(alarm_file):
             with open(alarm_file, 'r') as f:
                 alarm_data = json.load(f)
+            # Ensure 'enabled' field exists for backward compatibility
+            if 'enabled' not in alarm_data:
+                alarm_data['enabled'] = True
         else:
             # Default values if file doesn't exist
-            alarm_data = {'hour': 0, 'minute': 0}
+            alarm_data = {'hour': 0, 'minute': 0, 'enabled': True}
         return jsonify(alarm_data)
     except Exception as e:
         if logger:
@@ -367,20 +382,66 @@ def save_alarm():
         if not (0 <= hour <= 23) or not (0 <= minute <= 59):
             return jsonify({'error': 'Invalid hour or minute values'}), 400
         
-        alarm_data = {'hour': hour, 'minute': minute}
+        # Get existing alarm data to preserve enabled state if not provided
+        alarm_file = 'alarm.json'
+        existing_enabled = True  # Default
+        if os.path.exists(alarm_file):
+            try:
+                with open(alarm_file, 'r') as f:
+                    existing_data = json.load(f)
+                    existing_enabled = existing_data.get('enabled', True)
+            except:
+                pass
+        
+        # Use provided enabled value or existing one
+        enabled = data.get('enabled', existing_enabled)
+        
+        alarm_data = {'hour': hour, 'minute': minute, 'enabled': enabled}
         
         # Save to file
-        alarm_file = 'alarm.json'
         with open(alarm_file, 'w') as f:
             json.dump(alarm_data, f, indent=2)
         
         if logger:
-            logger.info(f"Alarm settings saved: {hour:02d}:{minute:02d}")
+            logger.info(f"Alarm settings saved: {hour:02d}:{minute:02d} (enabled: {enabled})")
         
         return jsonify({'status': 'success', 'data': alarm_data})
     except Exception as e:
         if logger:
             logger.error(f"Error saving alarm settings: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/api/alarm/toggle', methods=['POST'])
+def toggle_alarm():
+    """Toggle the alarm enabled status."""
+    try:
+        alarm_file = 'alarm.json'
+        
+        # Load existing alarm data
+        if os.path.exists(alarm_file):
+            with open(alarm_file, 'r') as f:
+                alarm_data = json.load(f)
+        else:
+            # Default values if file doesn't exist
+            alarm_data = {'hour': 0, 'minute': 0, 'enabled': True}
+        
+        # Toggle enabled status
+        alarm_data['enabled'] = not alarm_data.get('enabled', True)
+        
+        # Save to file
+        with open(alarm_file, 'w') as f:
+            json.dump(alarm_data, f, indent=2)
+        
+        if logger:
+            logger.info(f"Alarm toggled to: {'enabled' if alarm_data['enabled'] else 'disabled'}")
+        
+        # Notify all clients to update their alarm indicator
+        socketio.emit('alarm_toggled', {'enabled': alarm_data['enabled']})
+        
+        return jsonify({'status': 'success', 'enabled': alarm_data['enabled']})
+    except Exception as e:
+        if logger:
+            logger.error(f"Error toggling alarm: {str(e)}")
         return jsonify({'error': str(e)}), 500
 
 @app.route('/check_alarm', methods=['POST'])
@@ -394,6 +455,10 @@ def check_alarm():
                 alarm_data = json.load(f)
         else:
             return jsonify({'status': 'no_alarm_set'}), 200
+
+        # Check if alarm is enabled
+        if not alarm_data.get('enabled', True):
+            return jsonify({'status': 'alarm_disabled'}), 200
 
         # Get current local time
         now = time.localtime()

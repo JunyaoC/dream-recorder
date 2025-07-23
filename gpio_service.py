@@ -26,7 +26,8 @@ logger = logging.getLogger(__name__)
 class TouchPattern(Enum):
     SINGLE_TAP = 1
     DOUBLE_TAP = 2
-    HOLD = 3
+    TRIPLE_TAP = 3
+    HOLD = 4
 
 class GPIOController:
     """Controller for GPIO interactions with hardware components."""
@@ -73,17 +74,19 @@ class GPIOController:
         self.callbacks[pattern] = callback_func
         logger.info(f"Registered callback for {pattern.name}")
     
-    def start_monitoring(self, single_tap_max=None, double_tap_max_interval=None, hold_min_duration=None):
+    def start_monitoring(self, single_tap_max=None, double_tap_max_interval=None, triple_tap_max_interval=None, hold_min_duration=None):
         """
         Start monitoring for touch sensor events with specific pattern detection.
         
         Args:
             single_tap_max (float): Maximum duration for a single tap
             double_tap_max_interval (float): Maximum interval between taps for a double tap
+            triple_tap_max_interval (float): Maximum interval between taps for a triple tap
             hold_min_duration (float): Minimum duration for a hold press
         """
         self.single_tap_max = single_tap_max or float(get_config()['GPIO_SINGLE_TAP_MAX_DURATION'])
         self.double_tap_max_interval = double_tap_max_interval or float(get_config()['GPIO_DOUBLE_TAP_MAX_INTERVAL'])
+        self.triple_tap_max_interval = triple_tap_max_interval or float(get_config()['GPIO_TRIPLE_TAP_MAX_INTERVAL'])
         self.hold_min_duration = hold_min_duration or float(get_config()['GPIO_HOLD_MIN_DURATION'])
         self.is_running = True
         logger.info("Starting GPIO monitoring loop")
@@ -114,9 +117,21 @@ class GPIOController:
                                     self.last_tap_time = current_time
                                 elif self.tap_count == 2:
                                     if current_time - self.last_tap_time <= self.double_tap_max_interval:
-                                        if TouchPattern.DOUBLE_TAP in self.callbacks:
-                                            self.callbacks[TouchPattern.DOUBLE_TAP]()
-                                    self.tap_count = 0
+                                        # Don't trigger double tap yet, wait for possible triple tap
+                                        self.last_tap_time = current_time
+                                    else:
+                                        # Too slow, reset
+                                        self.tap_count = 1
+                                        self.last_tap_time = current_time
+                                elif self.tap_count == 3:
+                                    if current_time - self.last_tap_time <= self.triple_tap_max_interval:
+                                        if TouchPattern.TRIPLE_TAP in self.callbacks:
+                                            self.callbacks[TouchPattern.TRIPLE_TAP]()
+                                        self.tap_count = 0
+                                    else:
+                                        # Too slow, reset
+                                        self.tap_count = 1
+                                        self.last_tap_time = current_time
 
                 # Check for hold while button is still pressed
                 if (current_state and self.press_start_time and 
@@ -127,10 +142,14 @@ class GPIOController:
                     self.press_start_time = None  # Prevent multiple hold triggers
                     self.tap_count = 0  # Reset tap counting
 
-                # Check for single tap timeout
-                if self.tap_count == 1 and current_time - self.last_tap_time > self.double_tap_max_interval:
+                # Check for tap timeouts
+                if self.tap_count == 1 and current_time - self.last_tap_time > self.triple_tap_max_interval:
                     if TouchPattern.SINGLE_TAP in self.callbacks:
                         self.callbacks[TouchPattern.SINGLE_TAP]()
+                    self.tap_count = 0
+                elif self.tap_count == 2 and current_time - self.last_tap_time > self.triple_tap_max_interval:
+                    if TouchPattern.DOUBLE_TAP in self.callbacks:
+                        self.callbacks[TouchPattern.DOUBLE_TAP]()
                     self.tap_count = 0
                 
                 # Sleep for a bit to reduce CPU usage
@@ -166,6 +185,8 @@ def main():
                         help=f'Endpoint for single tap (default: {get_config()["GPIO_SINGLE_TAP_ENDPOINT"]})')
     parser.add_argument('--double-tap-endpoint', default=get_config()['GPIO_DOUBLE_TAP_ENDPOINT'],
                         help=f'Endpoint for double tap (default: {get_config()["GPIO_DOUBLE_TAP_ENDPOINT"]})')
+    parser.add_argument('--triple-tap-endpoint', default=get_config().get('GPIO_TRIPLE_TAP_ENDPOINT', '/api/gpio_triple_tap'),
+                        help=f'Endpoint for triple tap (default: /api/gpio_triple_tap)')
     parser.add_argument('--hold-endpoint', default=get_config().get('GPIO_HOLD_ENDPOINT', '/api/gpio_hold'),
                         help=f'Endpoint for hold press (default: /api/gpio_hold)')
     parser.add_argument('--pin', type=int, default=get_config()['GPIO_PIN'],
@@ -174,6 +195,8 @@ def main():
                         help=f'Maximum duration for a single tap in seconds (default: {get_config()["GPIO_SINGLE_TAP_MAX_DURATION"]})')
     parser.add_argument('--double-tap-max-interval', type=float, default=get_config()['GPIO_DOUBLE_TAP_MAX_INTERVAL'],
                         help=f'Maximum interval between taps for a double tap in seconds (default: {get_config()["GPIO_DOUBLE_TAP_MAX_INTERVAL"]})')
+    parser.add_argument('--triple-tap-max-interval', type=float, default=get_config().get('GPIO_TRIPLE_TAP_MAX_INTERVAL', 0.7),
+                        help=f'Maximum interval between taps for a triple tap in seconds (default: 0.7)')
     parser.add_argument('--debounce-time', type=float, default=get_config()['GPIO_DEBOUNCE_TIME'],
                         help=f'Debounce time in seconds (default: {get_config()["GPIO_DEBOUNCE_TIME"]})')
     parser.add_argument('--sampling-rate', type=float, default=get_config()['GPIO_SAMPLING_RATE'],
@@ -189,11 +212,13 @@ def main():
     if args.test:
         single_tap_url = f"{args.flask_url}{args.single_tap_endpoint}"
         double_tap_url = f"{args.flask_url}{args.double_tap_endpoint}"
+        triple_tap_url = f"{args.flask_url}{args.triple_tap_endpoint}"
         hold_url = f"{args.flask_url}{args.hold_endpoint}"
 
         BUTTONS = [
             {"label": "Single", "key": "s"},
             {"label": "Double", "key": "d"},
+            {"label": "Triple", "key": "t"},
             {"label": "Hold", "key": "h"}
         ]
 
@@ -203,7 +228,7 @@ def main():
         def draw_buttons(pressed=None):
             clear_screen()
             print("Retro GPIO Button Presser!\n")
-            # Draw all three buttons on the same line
+            # Draw all four buttons on the same line
             if pressed == 's':
                 single = [
                     " __________  ",
@@ -232,6 +257,20 @@ def main():
                     "|  Double  | ",
                     "|__________| "
                 ]
+            if pressed == 't':
+                triple = [
+                    " __________  ",
+                    "|##########| ",
+                    "|  TRIPLE | ",
+                    "|##########| "
+                ]
+            else:
+                triple = [
+                    " __________  ",
+                    "|          | ",
+                    "|  Triple  | ",
+                    "|__________| "
+                ]
             if pressed == 'h':
                 hold = [
                     " __________  ",
@@ -247,9 +286,9 @@ def main():
                     "|__________| "
                 ]
             # Print lines side by side
-            for s, d, h in zip(single, double, hold):
-                print(f"{s} {d} {h}")
-            print("\nType 's' for single tap, 'd' for double tap, 'h' for hold, 'q' to quit.")
+            for s, d, t, h in zip(single, double, triple, hold):
+                print(f"{s} {d} {t} {h}")
+            print("\nType 's' for single tap, 'd' for double tap, 't' for triple tap, 'h' for hold, 'q' to quit.")
 
         draw_buttons()
         while True:
@@ -276,6 +315,17 @@ def main():
                     print(f"Double tap response: {response.status_code} {response.text}")
                 except Exception as e:
                     print(f"Error sending double tap: {e}")
+            elif user_input == 't':
+                draw_buttons(pressed='t')
+                sys.stdout.flush()
+                time.sleep(0.25)
+                draw_buttons()
+                print(f"Simulating triple tap... (POST {triple_tap_url})")
+                try:
+                    response = requests.post(triple_tap_url)
+                    print(f"Triple tap response: {response.status_code} {response.text}")
+                except Exception as e:
+                    print(f"Error sending triple tap: {e}")
             elif user_input == 'h':
                 draw_buttons(pressed='h')
                 sys.stdout.flush()
@@ -292,7 +342,7 @@ def main():
                 break
             else:
                 draw_buttons()
-                print("Unknown command. Type 's' for single tap, 'd' for double tap, 'h' for hold, 'q' to quit.")
+                print("Unknown command. Type 's' for single tap, 'd' for double tap, 't' for triple tap, 'h' for hold, 'q' to quit.")
         return
 
     # Add a small delay at startup to let system initialize
@@ -302,11 +352,13 @@ def main():
     # Construct the full URLs to call
     single_tap_url = f"{args.flask_url}{args.single_tap_endpoint}"
     double_tap_url = f"{args.flask_url}{args.double_tap_endpoint}"
+    triple_tap_url = f"{args.flask_url}{args.triple_tap_endpoint}"
     hold_url = f"{args.flask_url}{args.hold_endpoint}"
     
     logger.info(f"Will send touch events to:")
     logger.info(f"  Single tap: {single_tap_url}")
     logger.info(f"  Double tap: {double_tap_url}")
+    logger.info(f"  Triple tap: {triple_tap_url}")
     logger.info(f"  Hold: {hold_url}")
     
     # Define the callback functions for each touch pattern
@@ -335,6 +387,19 @@ def main():
         except Exception as e:
             if logger:
                 logger.error(f"Error sending double tap: {str(e)}")
+    
+    def triple_tap_callback():
+        logger.info("Triple tap detected, sending to server...")
+        try:
+            response = requests.post(triple_tap_url)
+            if response.status_code == 200:
+                logger.info("Triple tap processed successfully")
+            else:
+                if logger:
+                    logger.error(f"Failed to process triple tap: {response.status_code} - {triple_tap_url}")
+        except Exception as e:
+            if logger:
+                logger.error(f"Error sending triple tap: {str(e)}")
     
     def hold_callback():
         logger.info("Hold detected, sending to server...")
@@ -366,6 +431,7 @@ def main():
             # Register callbacks for each touch pattern
             controller.register_callback(TouchPattern.SINGLE_TAP, single_tap_callback)
             controller.register_callback(TouchPattern.DOUBLE_TAP, double_tap_callback)
+            controller.register_callback(TouchPattern.TRIPLE_TAP, triple_tap_callback)
             controller.register_callback(TouchPattern.HOLD, hold_callback)
             
             logger.info(f"GPIO Service started successfully. Touch sensor on pin {args.pin}")
@@ -387,6 +453,7 @@ def main():
         controller.start_monitoring(
             single_tap_max=args.single_tap_max,
             double_tap_max_interval=args.double_tap_max_interval,
+            triple_tap_max_interval=args.triple_tap_max_interval,
             hold_min_duration=args.hold_min_duration
         )
     except KeyboardInterrupt:

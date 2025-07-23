@@ -53,6 +53,17 @@ const Clock = {
         this.elements.colon = document.querySelector('.colon');
         this.elements.minuteTens = document.querySelector('.minute-tens');
         this.elements.minuteOnes = document.querySelector('.minute-ones');
+
+        // Fetch and update alarm indicator only if in clock state
+        if (!window.StateManager || window.StateManager.currentState === 'clock') {
+            this.updateAlarmIndicator();
+            // Optionally, poll every minute for alarm changes
+            setInterval(() => this.updateAlarmIndicator(), 60000);
+        } else {
+            // Ensure alarm indicator is hidden during startup
+            const alarmDiv = document.getElementById('alarmIndicator');
+            if (alarmDiv) alarmDiv.style.display = 'none';
+        }
         
         // Start the clock
         this.updateClock();
@@ -124,6 +135,40 @@ const Clock = {
         if (this.clockInterval) {
             clearInterval(this.clockInterval);
             this.clockInterval = null;
+        }
+    },
+
+    // Fetch alarm info and update the alarm indicator
+    async updateAlarmIndicator() {
+        try {
+            // Check if we should show alarm indicator based on current state
+            if (window.StateManager && window.StateManager.currentState !== 'clock') {
+                const alarmDiv = document.getElementById('alarmIndicator');
+                if (alarmDiv) alarmDiv.style.display = 'none';
+                return;
+            }
+            
+            const response = await fetch('/api/alarm');
+            if (!response.ok) throw new Error('Failed to fetch alarm info');
+            const data = await response.json();
+            const alarmDiv = document.getElementById('alarmIndicator');
+            const alarmTimeSpan = document.getElementById('alarmTime');
+            if (!alarmDiv || !alarmTimeSpan) return;
+            const hour = parseInt(data.hour, 10);
+            const minute = parseInt(data.minute, 10);
+            const enabled = data.enabled !== false; // Default to true if not specified
+            
+            // Show alarm indicator only if enabled AND not 00:00
+            if (!enabled || (hour === 0 && minute === 0) || isNaN(hour) || isNaN(minute)) {
+                alarmDiv.style.display = 'none';
+            } else {
+                alarmDiv.style.display = 'flex';
+                alarmTimeSpan.textContent = `${hour.toString().padStart(2, '0')}:${minute.toString().padStart(2, '0')}`;
+            }
+        } catch (e) {
+            // Hide alarm indicator on error
+            const alarmDiv = document.getElementById('alarmIndicator');
+            if (alarmDiv) alarmDiv.style.display = 'none';
         }
     }
 };
